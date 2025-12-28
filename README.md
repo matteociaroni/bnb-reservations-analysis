@@ -10,7 +10,15 @@ This repository provides tools for analyzing short-term rental bookings across d
   - Monthly metrics per month (occupancy, revenue, etc.)
   - Calendar heatmaps showing booked days and nightly revenue
   - Platform usage analysis
- 
+
+### Examples
+
+![Monthly average occupation](assets/monthly-occupation.png)
+
+![Monthly revenue comparison](assets/revenue-comparison.png)
+
+![Booked days](assets/booked-days.png)
+
 ## Getting started
 ```bash
 git clone https://github.com/matteociaroni/bnb-reservations-analysis
@@ -30,11 +38,3 @@ python prepare_data.py
 ```
 ### Jupyter Notebooks
 Run the Jupyter notebooks in `notebooks/`.
-
-## Examples
-
-![Monthly average occupation](assets/monthly-occupation.png)
-
-![Monthly revenue comparison](assets/revenue-comparison.png)
-
-![Booked days](assets/booked-days.png)
