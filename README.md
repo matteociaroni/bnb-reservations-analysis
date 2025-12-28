@@ -21,12 +21,12 @@ pip install numpy
 pip install pandas
 ```
 ### Prepare the data
-Place your platform CSVs in the `input/` directory. Example files are provided for reference.
-Then:
+1. Place your platform CSVs in the `input/` directory. Example files are provided for reference.
+2. Change fees and taxation in `src/prepare_data.py`. Default is italian.
+3. Then execute `src/prepare_data.py`. This script reads the original CSVs from the `input` folder, processes them, and creates cleaned and merged CSVs in `output/` for analysis.
 ```bash
 cd src
 python prepare_data.py
 ```
-This script reads the original CSVs from the `input` folder, processes them, and creates cleaned and merged CSVs in `output/` for analysis.
 ### Jupyter Notebooks
 Run the Jupyter notebooks in `notebooks/`.
