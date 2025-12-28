@@ -30,3 +30,11 @@ python prepare_data.py
 ```
 ### Jupyter Notebooks
 Run the Jupyter notebooks in `notebooks/`.
+
+## Examples
+
+![Monthly average occupation](assets/monthly-occupation.png)
+
+![Monthly revenue comparison](assets/revenue-comparison.png)
+
+![Booked days](assets/booked-days.png)
