@@ -101,6 +101,7 @@ def build_daily_booking_fact(
         net_amount_col: str = "Net amount",
         nights_col: str = "Room nights",
         origin_col: str = "Origin",
+        persons_col: str = "Persons",
         status_col: str = "Status",
         valid_status: str = "OK"
 ) -> pd.DataFrame:
@@ -108,7 +109,7 @@ def build_daily_booking_fact(
     Build a daily booking fact table.
 
     One row = one occupied night.
-    Includes calendar fields, nightly revenue, and 'occupied' flag.
+    'occupied' represents number of persons for that night.
     """
     df = df.copy()
     df[arrival_col] = pd.to_datetime(df[arrival_col])
@@ -120,7 +121,12 @@ def build_daily_booking_fact(
 
     for _, row in df.iterrows():
         nightly_revenue = row[net_amount_col] / row[nights_col]
-        days = pd.date_range(start=row[arrival_col], end=row[departure_col] - pd.Timedelta(days=1))
+        persons = row[persons_col]
+
+        days = pd.date_range(
+            start=row[arrival_col],
+            end=row[departure_col] - pd.Timedelta(days=1)
+        )
 
         for day in days:
             records.append({
@@ -130,7 +136,7 @@ def build_daily_booking_fact(
                 "day": day.day,
                 "origin": row[origin_col],
                 "price_per_night": nightly_revenue,
-                "occupied": 1
+                "occupied": persons
             })
 
     return pd.DataFrame(records)
@@ -149,13 +155,17 @@ def compute_price_per_night(df: pd.DataFrame) -> pd.DataFrame:
 
 def build_platform_breakdown(daily_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Build a per-platform dictionary for each year/month.
+    Build per-platform metrics for each year/month.
+
+    nights          = number of booked nights
+    persons_nights  = sum of persons per night
     """
     platform_agg = (
         daily_df
         .groupby(["year", "month", "origin"])
         .agg(
-            nights=("occupied", "sum"),
+            nights=("date", "count"),              # 👈 numero di notti
+            persons_nights=("occupied", "sum"),    # 👈 persone × notti
             avg_price=("price_per_night", "mean")
         )
         .reset_index()
@@ -168,6 +178,7 @@ def build_platform_breakdown(daily_df: pd.DataFrame) -> pd.DataFrame:
             lambda g: {
                 row["origin"]: {
                     "nights": int(row["nights"]),
+                    "persons_nights": int(row["persons_nights"]),
                     "avg_price": float(row["avg_price"])
                 }
                 for _, row in g.iterrows()
@@ -181,27 +192,24 @@ def build_platform_breakdown(daily_df: pd.DataFrame) -> pd.DataFrame:
 
 def build_monthly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
     """
-    Build monthly occupancy and revenue summary,
-    only including months with actual data.
+    Build monthly occupancy and revenue summary.
     """
-    # aggregate by year and month
     monthly_agg = (
         daily_df
         .groupby(["year", "month"])
         .agg(
-            occupied_nights=("occupied", "sum"),
+            occupied_nights=("occupied", "count"),
+            total_persons=("occupied", "sum"),
             avg_price=("price_per_night", "mean")
         )
         .reset_index()
     )
 
-    # compute days in month
     monthly_agg["days_in_month"] = monthly_agg.apply(
         lambda r: pd.Period(f"{int(r.year)}-{int(r.month):02d}").days_in_month,
         axis=1
     )
 
-    # compute occupancy percentage
     monthly_agg["occupancy_pct"] = (
         monthly_agg["occupied_nights"]
         .div(monthly_agg["days_in_month"])
@@ -209,7 +217,11 @@ def build_monthly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
         .round(2)
     )
 
-    # compute monthly revenue
+    monthly_agg["avg_persons"] = (
+        monthly_agg["total_persons"]
+        .div(monthly_agg["occupied_nights"])
+    )
+
     monthly_agg["monthly_revenue"] = (
             monthly_agg["occupied_nights"] * monthly_agg["avg_price"]
     )
