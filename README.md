@@ -19,6 +19,10 @@ This repository provides tools for analyzing short-term rental bookings across d
 
 ![Booked days](assets/booked-days.png)
 
+![Net earnings per night](assets/earnings-per-night.png)
+
+![Net earnings by platform](assets/earnings-by-platform.png)
+
 ## Getting started
 ```bash
 git clone https://github.com/matteociaroni/bnb-reservations-analysis
