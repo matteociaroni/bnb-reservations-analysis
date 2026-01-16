@@ -21,7 +21,7 @@ This repository provides tools for analyzing short-term rental bookings across d
 
 ![Net earnings per night](assets/earnings-per-night.png)
 
-![Net earnings by platform](assets/earnings-by-platform.png)
+![Average lead time by platform](assets/lead-time.png)
 
 ## Getting started
 ```bash

@@ -2,10 +2,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-BOOKING_FEE = 0.165 # This is calculated from the original amount
-AIRBNB_FEE = 0.03 # This is calculated from the original amount
-STATE_FEE = 0.21 # This is calculated from the original amount
-VAT_TAX = 0.22 # This is calculated from the platform fees
+# These fees are calculated from the original amount
+BOOKING_FEE = 0.165
+AIRBNB_FEE = 0.03
+STATE_FEE = 0.21
+VAT_TAX = 0.22
 
 def read_booking_files(directory: Path) -> pd.DataFrame:
     """
