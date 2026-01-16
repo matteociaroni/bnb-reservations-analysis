@@ -107,9 +107,6 @@ def build_daily_booking_fact(
 ) -> pd.DataFrame:
     """
     Build a daily booking fact table.
-
-    One row = one occupied night.
-    'occupied' represents number of persons for that night.
     """
     df = df.copy()
     df[arrival_col] = pd.to_datetime(df[arrival_col])
@@ -141,45 +138,37 @@ def build_daily_booking_fact(
 
     return pd.DataFrame(records)
 
-def compute_price_per_night(df: pd.DataFrame) -> pd.DataFrame:
+def build_platform_breakdown(daily_df: pd.DataFrame, group_cols=["year", "month"]) -> pd.DataFrame:
     """
-    Compute nightly price, avoiding division by zero.
-    """
-    df = df.copy()
-    df["price_per_night"] = (
-        df["Net amount"]
-        .div(df["Room nights"])
-        .fillna(0)
-    )
-    return df
-
-def build_platform_breakdown(daily_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Build per-platform metrics for each year/month.
-
-    nights          = number of booked nights
-    persons_nights  = sum of persons per night
+    Build per-platform metrics for each grouping (year/month or year).
+    Added avg_persons and revenue per platform.
     """
     platform_agg = (
         daily_df
-        .groupby(["year", "month", "origin"])
+        .groupby(group_cols + ["origin"])
         .agg(
-            nights=("date", "count"),              # 👈 numero di notti
-            persons_nights=("occupied", "sum"),    # 👈 persone × notti
+            nights=("date", "count"),
+            persons_nights=("occupied", "sum"),
+            revenue=("price_per_night", "sum"),
             avg_price=("price_per_night", "mean")
         )
         .reset_index()
     )
 
+    # Calculate average persons per platform
+    platform_agg["avg_persons"] = (platform_agg["persons_nights"] / platform_agg["nights"]).round(2)
+
     platform_dict = (
         platform_agg
-        .groupby(["year", "month"])
+        .groupby(group_cols)
         .apply(
             lambda g: {
                 row["origin"]: {
                     "nights": int(row["nights"]),
                     "persons_nights": int(row["persons_nights"]),
-                    "avg_price": float(row["avg_price"])
+                    "avg_price": float(row["avg_price"]),
+                    "avg_persons": float(row["avg_persons"]),
+                    "revenue": float(row["revenue"])
                 }
                 for _, row in g.iterrows()
             }
@@ -228,6 +217,44 @@ def build_monthly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
 
     return monthly_agg
 
+def build_yearly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build yearly occupancy and revenue summary with same logic as monthly.
+    """
+    yearly_agg = (
+        daily_df
+        .groupby(["year"])
+        .agg(
+            occupied_nights=("occupied", "count"),
+            total_persons=("occupied", "sum"),
+            avg_price=("price_per_night", "mean")
+        )
+        .reset_index()
+    )
+
+    # Calculate days in year (handles leap years)
+    yearly_agg["days_in_year"] = yearly_agg["year"].apply(
+        lambda y: 366 if (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0) else 365
+    )
+
+    yearly_agg["occupancy_pct"] = (
+        yearly_agg["occupied_nights"]
+        .div(yearly_agg["days_in_year"])
+        .mul(100)
+        .round(2)
+    )
+
+    yearly_agg["avg_persons"] = (
+        yearly_agg["total_persons"]
+        .div(yearly_agg["occupied_nights"])
+    )
+
+    yearly_agg["yearly_revenue"] = (
+            yearly_agg["occupied_nights"] * yearly_agg["avg_price"]
+    )
+
+    return yearly_agg
+
 
 # =========================
 # Execution
@@ -237,23 +264,39 @@ booking_df = read_booking_files(Path("../input/booking"))
 airbnb_df.columns = booking_df.columns
 direct_df = preprocess_direct("../input/no_platform.csv")
 total_df = merge_all_bookings(booking_df, airbnb_df, direct_df)
+
 # keep only confirmed bookings
 confirmed = total_df[total_df["Status"] == "OK"].copy()
 
 daily_occupancy = build_daily_booking_fact(confirmed)
 
+# --- MONTHLY SUMMARY ---
 monthly_summary = build_monthly_summary(daily_occupancy)
-platform_summary = build_platform_breakdown(daily_occupancy)
+platform_summary_m = build_platform_breakdown(daily_occupancy, group_cols=["year", "month"])
 
 monthly_summary = monthly_summary.merge(
-    platform_summary,
+    platform_summary_m,
     on=["year", "month"],
     how="left"
 )
-
 monthly_summary["by_platform"] = monthly_summary["by_platform"].apply(
     lambda x: x if isinstance(x, dict) else {}
 )
 
+# --- YEARLY SUMMARY ---
+yearly_summary = build_yearly_summary(daily_occupancy)
+platform_summary_y = build_platform_breakdown(daily_occupancy, group_cols=["year"])
+
+yearly_summary = yearly_summary.merge(
+    platform_summary_y,
+    on=["year"],
+    how="left"
+)
+yearly_summary["by_platform"] = yearly_summary["by_platform"].apply(
+    lambda x: x if isinstance(x, dict) else {}
+)
+
+# --- OUTPUT ---
 monthly_summary.to_csv("../output/monthly_summary.csv", index=False)
+yearly_summary.to_csv("../output/yearly_summary.csv", index=False)
 daily_occupancy.to_csv("../output/daily_bookings.csv", index=False)

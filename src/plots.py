@@ -237,7 +237,7 @@ def plot_daily_bookings_by_platform(df_daily, year: int):
         aggfunc="first"
     ).reindex(columns=all_months)
 
-    heatmap_rgb = heatmap_origins.applymap(lambda x: color_mapping.get(x, (1, 1, 1)))
+    heatmap_rgb = heatmap_origins.map(lambda x: color_mapping.get(x, (1, 1, 1)))
 
     fig, ax = plt.subplots(figsize=(15, 8))
 
@@ -276,5 +276,93 @@ def plot_daily_bookings_by_platform(df_daily, year: int):
     patches = [mpatches.Patch(color=color_mapping[p], label=p) for p in platforms]
     ax.legend(handles=patches, title="Platform", bbox_to_anchor=(1.02, 1), loc='upper left')
 
+    plt.tight_layout()
+    plt.show()
+
+def plot_yearly_metric(
+        df_yearly: pd.DataFrame,
+        value_column: str,
+        *,
+        title: str,
+        y_label: str,
+        ylim: tuple = None,
+        grid: bool = True
+) -> None:
+    """
+    Plots a metric on a year-over-year basis.
+    """
+    plt.figure(figsize=(10, 6))
+
+    df_plot = df_yearly.sort_values("year")
+
+    bars = plt.bar(df_plot["year"].astype(str), df_plot[value_column])
+
+    plt.xlabel("Year")
+    plt.ylabel(y_label)
+    plt.title(title)
+
+    if ylim is not None:
+        plt.ylim(ylim)
+
+    if grid:
+        plt.grid(axis="y", linestyle="--", alpha=0.6)
+
+    plt.tight_layout()
+    plt.show()
+
+import ast
+
+def plot_yearly_metric_by_platform(
+        df_yearly: pd.DataFrame,
+        value_key: str,
+        *,
+        title: str,
+        y_label: str,
+        grid: bool = True
+) -> None:
+    """
+    Plot a metric year-over-year, broken down by platform.
+    Handles both live DataFrames and data loaded from CSV (string-serialized dictionaries).
+    """
+    extracted_data = []
+
+    for _, row in df_yearly.iterrows():
+        year = row['year']
+        platforms = row['by_platform']
+
+        # FIX: Se la colonna è una stringa (caricata da CSV), la convertiamo in dizionario
+        if isinstance(platforms, str):
+            try:
+                platforms = ast.literal_eval(platforms)
+            except (ValueError, SyntaxError):
+                continue
+
+        if isinstance(platforms, dict):
+            for platform, metrics in platforms.items():
+                if value_key in metrics:
+                    extracted_data.append({
+                        'Year': str(year),
+                        'Platform': platform,
+                        'Value': metrics[value_key]
+                    })
+
+    plot_df = pd.DataFrame(extracted_data)
+    plt.figure(figsize=(12, 7))
+
+    sns.barplot(
+        data=plot_df,
+        x='Year',
+        y='Value',
+        hue='Platform',
+    )
+
+    plt.title(title)
+    plt.xlabel("Year")
+    plt.ylabel(y_label)
+
+    if grid:
+        plt.grid(axis="y", linestyle="--", alpha=0.5)
+
+    plt.legend(title="Platform", bbox_to_anchor=(1.05, 1), loc='upper left')
     plt.tight_layout()
     plt.show()
