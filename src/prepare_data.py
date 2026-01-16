@@ -72,12 +72,9 @@ def preprocess_direct(file_path: str) -> pd.DataFrame:
     df = pd.read_csv(file_path)
     df["Origin"] = "Direct"
     df["Net amount"] = df["Original amount"] * (1 - STATE_FEE)
-
     df["Arrival"] = pd.to_datetime(df["Arrival"], format="%d/%m/%Y")
     df["Departure"] = pd.to_datetime(df["Departure"], format="%d/%m/%Y")
-
     return df
-
 
 def merge_all_bookings(booking: pd.DataFrame, airbnb: pd.DataFrame, direct: pd.DataFrame) -> pd.DataFrame:
     """
@@ -98,6 +95,8 @@ def build_daily_booking_fact(
         df: pd.DataFrame,
         arrival_col: str = "Arrival",
         departure_col: str = "Departure",
+        booked_on_col: str = "Booked on",
+        days_before_col: str = "Days before",
         net_amount_col: str = "Net amount",
         nights_col: str = "Room nights",
         origin_col: str = "Origin",
@@ -109,13 +108,9 @@ def build_daily_booking_fact(
     Build a daily booking fact table.
     """
     df = df.copy()
-    df[arrival_col] = pd.to_datetime(df[arrival_col])
-    df[departure_col] = pd.to_datetime(df[departure_col])
-
     df = df[(df[status_col] == valid_status) & (df[nights_col] > 0)]
 
     records = []
-
     for _, row in df.iterrows():
         nightly_revenue = row[net_amount_col] / row[nights_col]
         persons = row[persons_col]
@@ -125,7 +120,8 @@ def build_daily_booking_fact(
             end=row[departure_col] - pd.Timedelta(days=1)
         )
 
-        for day in days:
+        for i, day in enumerate(days):
+            is_checkin = (i == 0)
             records.append({
                 "date": day,
                 "year": day.year,
@@ -133,7 +129,9 @@ def build_daily_booking_fact(
                 "day": day.day,
                 "origin": row[origin_col],
                 "price_per_night": nightly_revenue,
-                "occupied": persons
+                "occupied": persons,
+                "booked_on": row[booked_on_col] if is_checkin else pd.NaT,
+                "days_before": row[days_before_col] if is_checkin else np.nan
             })
 
     return pd.DataFrame(records)
@@ -150,7 +148,8 @@ def build_platform_breakdown(daily_df: pd.DataFrame, group_cols=["year", "month"
             nights=("date", "count"),
             persons_nights=("occupied", "sum"),
             revenue=("price_per_night", "sum"),
-            avg_price=("price_per_night", "mean")
+            avg_price=("price_per_night", "mean"),
+            avg_lead_time=("days_before", "mean")
         )
         .reset_index()
     )
@@ -168,14 +167,14 @@ def build_platform_breakdown(daily_df: pd.DataFrame, group_cols=["year", "month"
                     "persons_nights": int(row["persons_nights"]),
                     "avg_price": float(row["avg_price"]),
                     "avg_persons": float(row["avg_persons"]),
-                    "revenue": float(row["revenue"])
+                    "revenue": float(row["revenue"]),
+                    "avg_lead_time": round(float(row["avg_lead_time"]), 2) if not pd.isna(row["avg_lead_time"]) else 0
                 }
                 for _, row in g.iterrows()
             }
         )
         .reset_index(name="by_platform")
     )
-
     return platform_dict
 
 
@@ -189,7 +188,8 @@ def build_monthly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
         .agg(
             occupied_nights=("occupied", "count"),
             total_persons=("occupied", "sum"),
-            avg_price=("price_per_night", "mean")
+            avg_price=("price_per_night", "mean"),
+            avg_lead_time=("days_before", "mean") # Calcolo media giorni anticipo
         )
         .reset_index()
     )
@@ -199,21 +199,9 @@ def build_monthly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
         axis=1
     )
 
-    monthly_agg["occupancy_pct"] = (
-        monthly_agg["occupied_nights"]
-        .div(monthly_agg["days_in_month"])
-        .mul(100)
-        .round(2)
-    )
-
-    monthly_agg["avg_persons"] = (
-        monthly_agg["total_persons"]
-        .div(monthly_agg["occupied_nights"])
-    )
-
-    monthly_agg["monthly_revenue"] = (
-            monthly_agg["occupied_nights"] * monthly_agg["avg_price"]
-    )
+    monthly_agg["occupancy_pct"] = (monthly_agg["occupied_nights"] / monthly_agg["days_in_month"] * 100).round(2)
+    monthly_agg["avg_persons"] = monthly_agg["total_persons"] / monthly_agg["occupied_nights"]
+    monthly_agg["monthly_revenue"] = monthly_agg["occupied_nights"] * monthly_agg["avg_price"]
 
     return monthly_agg
 
@@ -227,7 +215,8 @@ def build_yearly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
         .agg(
             occupied_nights=("occupied", "count"),
             total_persons=("occupied", "sum"),
-            avg_price=("price_per_night", "mean")
+            avg_price=("price_per_night", "mean"),
+            avg_lead_time=("days_before", "mean") # Calcolo media giorni anticipo
         )
         .reset_index()
     )
@@ -237,24 +226,11 @@ def build_yearly_summary(daily_df: pd.DataFrame) -> pd.DataFrame:
         lambda y: 366 if (y % 4 == 0 and y % 100 != 0) or (y % 400 == 0) else 365
     )
 
-    yearly_agg["occupancy_pct"] = (
-        yearly_agg["occupied_nights"]
-        .div(yearly_agg["days_in_year"])
-        .mul(100)
-        .round(2)
-    )
-
-    yearly_agg["avg_persons"] = (
-        yearly_agg["total_persons"]
-        .div(yearly_agg["occupied_nights"])
-    )
-
-    yearly_agg["yearly_revenue"] = (
-            yearly_agg["occupied_nights"] * yearly_agg["avg_price"]
-    )
+    yearly_agg["occupancy_pct"] = (yearly_agg["occupied_nights"] / yearly_agg["days_in_year"] * 100).round(2)
+    yearly_agg["avg_persons"] = yearly_agg["total_persons"] / yearly_agg["occupied_nights"]
+    yearly_agg["yearly_revenue"] = yearly_agg["occupied_nights"] * yearly_agg["avg_price"]
 
     return yearly_agg
-
 
 # =========================
 # Execution
@@ -267,34 +243,13 @@ total_df = merge_all_bookings(booking_df, airbnb_df, direct_df)
 
 # keep only confirmed bookings
 confirmed = total_df[total_df["Status"] == "OK"].copy()
-
 daily_occupancy = build_daily_booking_fact(confirmed)
 
-# --- MONTHLY SUMMARY ---
 monthly_summary = build_monthly_summary(daily_occupancy)
-platform_summary_m = build_platform_breakdown(daily_occupancy, group_cols=["year", "month"])
+monthly_summary = monthly_summary.merge(build_platform_breakdown(daily_occupancy, ["year", "month"]), on=["year", "month"], how="left")
 
-monthly_summary = monthly_summary.merge(
-    platform_summary_m,
-    on=["year", "month"],
-    how="left"
-)
-monthly_summary["by_platform"] = monthly_summary["by_platform"].apply(
-    lambda x: x if isinstance(x, dict) else {}
-)
-
-# --- YEARLY SUMMARY ---
 yearly_summary = build_yearly_summary(daily_occupancy)
-platform_summary_y = build_platform_breakdown(daily_occupancy, group_cols=["year"])
-
-yearly_summary = yearly_summary.merge(
-    platform_summary_y,
-    on=["year"],
-    how="left"
-)
-yearly_summary["by_platform"] = yearly_summary["by_platform"].apply(
-    lambda x: x if isinstance(x, dict) else {}
-)
+yearly_summary = yearly_summary.merge(build_platform_breakdown(daily_occupancy, ["year"]), on=["year"], how="left")
 
 # --- OUTPUT ---
 monthly_summary.to_csv("../output/monthly_summary.csv", index=False)
